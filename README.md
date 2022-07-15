@@ -8,6 +8,8 @@
 
 定时护眼工具，有强制锁屏功能，可以保障你休息眼睛，避免久坐。
 
+支持多显示器。
+
 ## 编译环境
 
 Visual Studio 2022 | EasyX 20220610 | [EasyWin32](https://github.com/zouhuidong/EasyWin32)
