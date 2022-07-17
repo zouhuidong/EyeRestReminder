@@ -4,11 +4,11 @@
 //	基于 EasyX 图形库的 Win32 拓展库
 //
 //	作　　者：huidong <mailhuid@163.com>
-//	版　　本：Ver 3.0.0
+//	版　　本：Ver 3.1.1
 //	编译环境：VisualStudio 2022 | EasyX_20220610 | Windows 10 
 //	项目地址：https://github.com/zouhuidong/EasyWin32
 //	创建日期：2020.12.06
-//	最后修改：2022.07.15
+//	最后修改：2022.07.16
 //
 
 #pragma once
@@ -27,9 +27,6 @@
 
 // 托盘消息
 #define WM_TRAY	(WM_USER + 100)
-
-// 所有类型的消息（等同于 fliter = -1）
-#define EM_ALL (EM_MOUSE | EM_KEY | EM_CHAR | EM_WINDOW)
 
 
 #define EASY_WIN32_BEGIN	namespace EasyWin32 {
@@ -53,11 +50,7 @@ struct EasyWindow
 	bool(*funcWndProc)						// 窗口消息处理函数
 		(HWND, UINT, WPARAM, LPARAM, HINSTANCE);
 
-	// 模拟 EasyX 窗口消息队列
-	std::vector<ExMessage> vecMouseMsg;		// EM_MOUSE
-	std::vector<ExMessage> vecKeyMsg;		// EM_KEY
-	std::vector<ExMessage> vecCharMsg;		// EM_CHAR
-	std::vector<ExMessage> vecWindowMsg;	// EM_WINDOW
+	std::vector<ExMessage> vecMessage;		// 模拟 EasyX 窗口消息队列
 
 	bool isUseTray;							// 是否使用托盘
 	NOTIFYICONDATA nid;						// 托盘信息
@@ -71,6 +64,65 @@ struct EasyWindow
 	bool isBusyProcessing;					// 是否正忙于处理内部消息（指不允许用户启动任务的情况）
 
 	int nSkipPixels;						// 绘制时跳过的像素点数量（降质性速绘）
+};
+
+// 鼠标拖动消息
+// 调用方法：
+//	需要在鼠标消息循环中每次都调用 UpdateMessage 更新鼠标消息
+//	调用 isLeftDrag，isMiddleDrag，isRightDrag 函数判断正在拖动的鼠标按键
+//	调用 GetDragX，GetDragY 获取鼠标拖动时鼠标坐标的变化量
+class MouseDrag
+{
+private:
+	ExMessage old, msg;
+	int dx, dy;
+	bool lbtn = false, mbtn = false, rbtn = false;
+	bool newmsg = false;
+
+	bool UpdateDragInfo(bool& btn, int msgid_down, int msgid_up)
+	{
+		if (newmsg)
+		{
+			if (btn)
+			{
+				dx = msg.x - old.x;
+				dy = msg.y - old.y;
+				old = msg;
+				if (msg.message == msgid_up)	btn = false;
+				if (dx != 0 || dy != 0)			return true;
+				else							return false;
+			}
+			else
+			{
+				if (msg.message == msgid_down)
+				{
+					btn = true;
+					old = msg;
+				}
+				return false;
+			}
+			newmsg = false;
+		}
+		else
+		{
+			return false;
+		}
+	}
+
+public:
+
+	void UpdateMessage(ExMessage m)
+	{
+		msg = m;
+		newmsg = true;
+	}
+
+	bool isLeftDrag() { return UpdateDragInfo(lbtn, WM_LBUTTONDOWN, WM_LBUTTONUP); }
+	bool isMiddleDrag() { return UpdateDragInfo(mbtn, WM_MBUTTONDOWN, WM_MBUTTONUP); }
+	bool isRightDrag() { return UpdateDragInfo(rbtn, WM_RBUTTONDOWN, WM_RBUTTONUP); }
+
+	int GetDragX() { return dx; }
+	int GetDragY() { return dy; }
 };
 
 ////////////****** 窗体相关函数 ******////////////
@@ -242,6 +294,23 @@ ExMessage To_ExMessage(MOUSEMSG msg);
 // ExMessage 转 MOUSEMSG
 MOUSEMSG To_MouseMsg(ExMessage msgEx);
 
+//// 消息类型判断
+
+// 获取 ExMessage 的 EM 消息类型
+UINT GetExMessageType(ExMessage msg);
+
+
+////////////****** 图像处理相关函数 ******////////////
+
+// 得到 IMAGE 对象的 HBITMAP
+HBITMAP Image2Bitmap(IMAGE* img);
+
+// HBITMAP 转 HICON
+HICON Bitmap2Icon(HBITMAP hBmp);
+
+// 在屏幕指定位置输出格式化文本
+void outtextxy_format(int x, int y, int _Size, LPCTSTR lpFormat, ...);
+
 
 EASY_WIN32_END
 
@@ -323,19 +392,9 @@ EASY_WIN32_END
 
 ////////////****** 其他函数 ******////////////
 
-
 // 精确延时函数(可以精确到 1ms，精度 ±1ms)
 // by yangw80<yw80@qq.com>, 2011-5-4
 void HpSleep(int ms);
-
-// 在屏幕指定位置输出格式化文本
-void outtextxy_format(int x, int y, int _Size, LPCTSTR lpFormat, ...);
-
-// 得到 IMAGE 对象的 HBITMAP
-HBITMAP GetImageHBitmap(IMAGE* img);
-
-// HBITMAP 转 HICON
-HICON HICONFromHBitmap(HBITMAP hBmp);
 
 // 常用色彩扩展
 enum COLORS {

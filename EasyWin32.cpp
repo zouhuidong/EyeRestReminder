@@ -2,7 +2,7 @@
 //
 //	EasyWin32.cpp
 //
-//	Ver 3.0.0
+//	Ver 3.1.1
 //
 //
 
@@ -189,10 +189,7 @@ void DelWindow(int index)
 	}
 
 	// 释放消息列表内存
-	std::vector<ExMessage>().swap(g_vecWindows[index].vecMouseMsg);
-	std::vector<ExMessage>().swap(g_vecWindows[index].vecKeyMsg);
-	std::vector<ExMessage>().swap(g_vecWindows[index].vecCharMsg);
-	std::vector<ExMessage>().swap(g_vecWindows[index].vecWindowMsg);
+	std::vector<ExMessage>().swap(g_vecWindows[index].vecMessage);
 
 	DestroyWindow(g_vecWindows[index].hWnd);
 	PostQuitMessage(NULL);
@@ -494,73 +491,101 @@ void SetCustomIcon(int nIcon, int nIconSm)
 	g_hCustomIconSm = LoadIcon(g_hInstance, MAKEINTRESOURCE(g_nCustomIconSm));
 }
 
-// 获取某个消息的 vector
-// 不支持混合消息类型
-std::vector<ExMessage>& GetMsgVector(BYTE filter)
+UINT GetExMessageType(ExMessage msg)
 {
-	static std::vector<ExMessage> vec;
-	vec.clear();
-	switch (filter)
+	switch (msg.message)
 	{
-	case EM_MOUSE:	return GetFocusWindow().vecMouseMsg;
-	case EM_KEY:	return GetFocusWindow().vecKeyMsg;
-	case EM_CHAR:	return GetFocusWindow().vecCharMsg;
-	case EM_WINDOW:	return GetFocusWindow().vecWindowMsg;
-	default:		return vec;
+	case WM_MOUSEMOVE:
+	case WM_MOUSEWHEEL:
+	case WM_LBUTTONDOWN:
+	case WM_LBUTTONUP:
+	case WM_LBUTTONDBLCLK:
+	case WM_MBUTTONDOWN:
+	case WM_MBUTTONUP:
+	case WM_MBUTTONDBLCLK:
+	case WM_RBUTTONDOWN:
+	case WM_RBUTTONUP:
+	case WM_RBUTTONDBLCLK:
+		return EM_MOUSE;
+		break;
+	case WM_KEYDOWN:
+	case WM_KEYUP:
+	case WM_SYSKEYDOWN:
+	case WM_SYSKEYUP:
+		return EM_KEY;
+		break;
+	case WM_CHAR:
+		return EM_CHAR;
+		break;
+	case WM_ACTIVATE:
+	case WM_MOVE:
+	case WM_SIZE:
+		return EM_WINDOW;
+		break;
+	default:
+		return 0;
+		break;
 	}
 }
 
-// 移除当前消息
-// 不支持混合消息类型
-void RemoveMessage(BYTE type)
+// 获取某个消息的 vector
+std::vector<ExMessage>& GetMsgVector()
 {
-	GetMsgVector(type).erase(GetMsgVector(type).begin());
+	return GetFocusWindow().vecMessage;
+}
+
+// 移除当前消息
+void RemoveMessage()
+{
+	GetMsgVector().erase(GetMsgVector().begin());
 }
 
 // 清空消息
 // 支持混合消息类型
 void ClearMessage(BYTE filter)
 {
-	if (filter == -1)	filter = EM_ALL;
-	for (auto type : g_pMsgTypes)
-		if (filter & type)
-			GetMsgVector(type).clear();
+	for (size_t i = 0; i < GetMsgVector().size(); i++)
+		if (filter & GetExMessageType(GetMsgVector()[i]))
+			GetMsgVector().erase(GetMsgVector().begin() + i--);
 }
 
 // 是否有新消息
 // 支持混合消息类型
 bool isNewMessage(BYTE filter)
 {
-	bool flag = false;
-	if (filter == -1)	filter = EM_ALL;
-	for (auto type : g_pMsgTypes)
-		if (filter & type)
-			flag |= (bool)GetMsgVector(type).size();
-	return flag;
+	for (auto element : GetMsgVector())
+		if (filter & GetExMessageType(element))
+			return true;
+	return false;
 }
 
-// 获取下一条消息
-// 不支持混合消息类型
+// 清除消息，直至获取到符合类型的消息
+// 支持混合消息类型
 ExMessage GetNextMessage(BYTE filter)
 {
-	return isNewMessage(filter) ? GetMsgVector(filter)[0] : ExMessage();
+	if (isNewMessage(filter))
+	{
+		for (size_t i = 0; i < GetMsgVector().size(); i++)
+		{
+			if (filter & GetExMessageType(GetMsgVector()[i]))
+			{
+				for (size_t j = 0; j < i; j++)
+				{
+					RemoveMessage();
+				}
+				return GetMsgVector()[0];
+			}
+		}
+	}
+	return {};
 }
 
 ExMessage getmessage_win32(BYTE filter)
 {
-	if (filter == -1)	filter = EM_ALL;
 	while (!isNewMessage(filter))	HpSleep(1);
-	for (auto type : g_pMsgTypes)
-	{
-		// 可能选择了多种消息类型，需要判断是哪种类型有新消息
-		if (filter & type && isNewMessage(type))
-		{
-			ExMessage msg = GetNextMessage(type);
-			RemoveMessage(type);
-			return msg;
-		}
-	}
-	return {};
+	ExMessage msg = GetNextMessage(filter);
+	RemoveMessage();
+	return msg;
 }
 
 void getmessage_win32(ExMessage* msg, BYTE filter)
@@ -571,15 +596,11 @@ void getmessage_win32(ExMessage* msg, BYTE filter)
 
 bool peekmessage_win32(ExMessage* msg, BYTE filter, bool removemsg)
 {
-	if (filter == -1)	filter = EM_ALL;
-	for (auto type : g_pMsgTypes)
+	if (isNewMessage(filter))
 	{
-		if (filter & type && isNewMessage(type))
-		{
-			if (msg)		*msg = GetNextMessage(type);
-			if (removemsg)	RemoveMessage(type);
-			return true;
-		}
+		if (msg)		*msg = GetNextMessage(filter);
+		if (removemsg)	RemoveMessage();
+		return true;
 	}
 	return false;
 }
@@ -702,8 +723,8 @@ int SetWindowExStyle(long lNewExStyle)
 HICON GetDefaultAppIcon()
 {
 	IMAGE img = GetDefaultIconImage();
-	HBITMAP hBmp = GetImageHBitmap(&img);
-	HICON hIcon = HICONFromHBitmap(hBmp);
+	HBITMAP hBmp = Image2Bitmap(&img);
+	HICON hIcon = Bitmap2Icon(hBmp);
 	DeleteObject(hBmp);
 	return hIcon;
 }
@@ -813,7 +834,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		msgMouse.lbutton = LOWORD(wParam) & 0x01 ? true : false;
 		msgMouse.mbutton = LOWORD(wParam) & 0x10 ? true : false;
 		msgMouse.rbutton = LOWORD(wParam) & 0x02 ? true : false;
-		g_vecWindows[indexWnd].vecMouseMsg.push_back(msgMouse);
+		g_vecWindows[indexWnd].vecMessage.push_back(msgMouse);
 	}
 	break;
 
@@ -835,16 +856,17 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		BOOL repeatFlag = (keyFlags & KF_REPEAT) == KF_REPEAT;        // previous key-state flag, 1 on autorepeat
 		WORD repeatCount = LOWORD(lParam);                            // repeat count, > 0 if several keydown messages was combined into one message
 		BOOL upFlag = (keyFlags & KF_UP) == KF_UP;                    // transition-state flag, 1 on keyup
-
+		
+		// 功能键：不区分左右
 		// if we want to distinguish these keys:
-		switch (vkCode)
-		{
-		case VK_SHIFT:   // converts to VK_LSHIFT or VK_RSHIFT
-		case VK_CONTROL: // converts to VK_LCONTROL or VK_RCONTROL
-		case VK_MENU:    // converts to VK_LMENU or VK_RMENU
-			vkCode = LOWORD(MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX));
-			break;
-		}
+		//switch (vkCode)
+		//{
+		//case VK_SHIFT:   // converts to VK_LSHIFT or VK_RSHIFT
+		//case VK_CONTROL: // converts to VK_LCONTROL or VK_RCONTROL
+		//case VK_MENU:    // converts to VK_LMENU or VK_RMENU
+		//	vkCode = LOWORD(MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX));
+		//	break;
+		//}
 
 		ExMessage msgKey = {};
 		msgKey.message = msg;
@@ -853,10 +875,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		msgKey.extended = isExtendedKey;
 		msgKey.prevdown = repeatFlag;
 
-		g_vecWindows[indexWnd].vecKeyMsg.push_back(msgKey);
+		g_vecWindows[indexWnd].vecMessage.push_back(msgKey);
 
 		// 给控制台发一份，支持 _getch() 系列函数
-		SendMessage(g_hConsole, msg, wParam, lParam);
+		PostMessage(g_hConsole, msg, wParam, lParam);
 	}
 	break;
 
@@ -866,10 +888,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		ExMessage msgChar = {};
 		msgChar.message = msg;
 		msgChar.ch = wParam;
-		g_vecWindows[indexWnd].vecCharMsg.push_back(msgChar);
+		g_vecWindows[indexWnd].vecMessage.push_back(msgChar);
 
 		// 通知控制台
-		SendMessage(g_hConsole, msg, wParam, lParam);
+		PostMessage(g_hConsole, msg, wParam, lParam);
 	}
 	break;
 
@@ -882,7 +904,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		msgWindow.message = msg;
 		msgWindow.wParam = wParam;
 		msgWindow.lParam = lParam;
-		g_vecWindows[indexWnd].vecWindowMsg.push_back(msgWindow);
+		g_vecWindows[indexWnd].vecMessage.push_back(msgWindow);
 	}
 	break;
 
@@ -1082,10 +1104,7 @@ void InitWindow(int w, int h, int flag, LPCTSTR strWndTitle, bool(*WindowProcess
 	wnd.pImg = new IMAGE(w, h);
 	wnd.pBufferImg = new IMAGE(w, h);
 	wnd.funcWndProc = WindowProcess;
-	wnd.vecMouseMsg.reserve(MSG_RESERVE_SIZE);
-	wnd.vecKeyMsg.reserve(MSG_RESERVE_SIZE);
-	wnd.vecCharMsg.reserve(MSG_RESERVE_SIZE);
-	wnd.vecWindowMsg.reserve(MSG_RESERVE_SIZE);
+	wnd.vecMessage.reserve(MSG_RESERVE_SIZE);
 	wnd.isUseTray = false;
 	wnd.nid = { 0 };
 	wnd.isUseTrayMenu = false;
@@ -1180,42 +1199,14 @@ HWND initgraph_win32(int w, int h, int flag, LPCTSTR strWndTitle, bool(*WindowPr
 	}
 }
 
-
-EASY_WIN32_END
-
 ////////////****** 其他函数 ******////////////
 
-void HpSleep(int ms)
-{
-	static clock_t oldclock = clock();		// 静态变量，记录上一次 tick
-
-	oldclock += ms * CLOCKS_PER_SEC / 1000;	// 更新 tick
-
-	if (clock() > oldclock)					// 如果已经超时，无需延时
-		oldclock = clock();
-	else
-		while (clock() < oldclock)			// 延时
-			Sleep(1);						// 释放 CPU 控制权，降低 CPU 占用率
-//			Sleep(0);						// 更高精度、更高 CPU 占用率
-}
-
-void outtextxy_format(int x, int y, int _Size, const wchar_t* _Format, ...)
-{
-	va_list list;
-	va_start(list, _Format);
-	wchar_t* buf = new wchar_t[_Size];
-	vswprintf_s(buf, _Size, _Format, list);
-	va_end(list);
-	outtextxy(x, y, buf);
-	delete buf;
-}
-
-HBITMAP GetImageHBitmap(IMAGE* img)
+HBITMAP Image2Bitmap(IMAGE* img)
 {
 	return CreateBitmap(img->getwidth(), img->getheight(), 1, 32, (void*)GetImageBuffer(img));
 }
 
-HICON HICONFromHBitmap(HBITMAP hBmp)
+HICON Bitmap2Icon(HBITMAP hBmp)
 {
 	BITMAP bmp = {};
 	GetObject(hBmp, sizeof(BITMAP), &bmp);
@@ -1232,3 +1223,31 @@ HICON HICONFromHBitmap(HBITMAP hBmp)
 
 	return hIcon;
 }
+
+void outtextxy_format(int x, int y, int _Size, LPCTSTR _Format, ...)
+{
+	va_list list;
+	va_start(list, _Format);
+	wchar_t* buf = new wchar_t[_Size];
+	vswprintf_s(buf, _Size, _Format, list);
+	va_end(list);
+	outtextxy(x, y, buf);
+	delete buf;
+}
+
+EASY_WIN32_END
+
+void HpSleep(int ms)
+{
+	static clock_t oldclock = clock();		// 静态变量，记录上一次 tick
+
+	oldclock += ms * CLOCKS_PER_SEC / 1000;	// 更新 tick
+
+	if (clock() > oldclock)					// 如果已经超时，无需延时
+		oldclock = clock();
+	else
+		while (clock() < oldclock)			// 延时
+			Sleep(1);						// 释放 CPU 控制权，降低 CPU 占用率
+//			Sleep(0);						// 更高精度、更高 CPU 占用率
+}
+

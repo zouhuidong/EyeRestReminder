@@ -118,6 +118,17 @@ void WindowDown(HWND hWnd, ScreenSize size)
 	}
 }
 
+// 窗口淡出效果
+void WindowFade(HWND hWnd)
+{
+	SetWindowLong(hWnd, GWL_EXSTYLE, GetWindowLong(hWnd, GWL_EXSTYLE) | WS_EX_LAYERED);
+	for (int i = 255; i >= 0; i--)
+	{
+		SetLayeredWindowAttributes(hWnd, 0, i, LWA_ALPHA);
+		if (i % 2)	Sleep(1);
+	}
+}
+
 void OnMessage(HWND hWnd)
 {
 	static bool flag = false;
@@ -125,10 +136,12 @@ void OnMessage(HWND hWnd)
 	if (!flag)
 	{
 		flag = true;
+		SetLayeredWindowAttributes(hWnd, 0, 255, LWA_ALPHA);
 		ShowWindow(hWnd, SW_SHOW);
 		SetWindowPos(hWnd, HWND_TOPMOST, g_rctWnd.left, g_rctWnd.top, 0, 0, SWP_NOSIZE);
 		Sleep(5000);
-		WindowDown(hWnd, g_sizeScreen);
+		//WindowDown(hWnd, g_sizeScreen);
+		WindowFade(hWnd);
 		ShowWindow(hWnd, SW_HIDE);
 		SetWindowPos(hWnd, NULL, g_rctWnd.left, g_rctWnd.top, 0, 0, SWP_NOSIZE);
 		flag = false;
