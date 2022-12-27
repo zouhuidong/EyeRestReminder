@@ -10,6 +10,8 @@
 
 支持多显示器。
 
+此项目已升级到新版 https://github.com/zouhuidong/BowToLearn 
+
 ## 编译环境
 
 Visual Studio 2022 | EasyX 20220610 | [EasyWin32](https://github.com/zouhuidong/EasyWin32)
